@@ -19,6 +19,8 @@
 
 char versionStr[] = "High Voltage Pedal Charger v1.0";
 
+#define ACVOLTAGETARGET 120 // how many volts we want to generate
+#define ACFREQUENCY 60 // target frequency in Hertz (cycles per second)
 #define MINVOLTAGE 120 * 1.414 * 0.90 // minimum turn-on voltage
 #define MAXVOLTAGE 300 * 0.85 // based on capacitor maximum voltage?
 #define RELAYHYSTVOLTS 30 // how many volts below MAXVOLTAGE relay cancels
@@ -31,6 +33,7 @@ char versionStr[] = "High Voltage Pedal Charger v1.0";
 
 float hvdc; // voltage of high-voltage DC rail
 unsigned long timeNow, lastRelayTime = 0;
+boolean lastPolarity = true; // which polarity was AC last cycle
 
 void setup() {
   Serial.begin(BAUDRATE);
@@ -41,6 +44,7 @@ void setup() {
   digitalWrite(Y-POS,HIGH); // high = off, low = on
   pinMode(X-POS,OUTPUT);
   pinMode(Y-POS,OUTPUT);
+  setupInterruptHandler(); // configure interrupt-based FET control
 }
 
 void loop() {
@@ -48,6 +52,39 @@ void loop() {
   getVoltage();
   doSafety();
   if hvdc > minVoltage
+}
+
+void setupInterruptHandler() { // configure interrupt-based FET control
+  look at ACFREQUENCY and use it to setup frequency for first handler
+  setup one interrupt handler to trigger 120x per second
+    this handler turns on the FETs (opposite polarity each time)
+    and sets the timer for the other interrupt handler to be called
+    based on the correct amount of on-time for the present voltage
+  setup another interrupt handler to trigger when another timer expires
+    this handler just turns all the FETs off when it's called.
+}
+
+void polarityIntHandler() { // this is called 120 times per second for 60 Hertz
+  if (lastPolarity) {
+  digitalWrite(Y-POS,LOW);  // activate Y-positive
+  digitalWrite(X-NEG,HIGH); // activate X-negative
+  lastPolarity = false; // make it opposite what it was
+  } else { // lastPolarity was false
+  digitalWrite(X-POS,LOW);  // activate X-positive
+  digitalWrite(Y-NEG,HIGH); // activate Y-negative
+  lastPolarity = true; // make it opposite what it was
+  }
+
+  now set the interrupt handler for offTimeIntHandlers()
+    to happen the correct amount of time after now
+    based on the voltage of hvdc versus the target voltage
+}
+
+void offTimeIntHandlers() { // this is called by the settable timer interrupt
+  digitalWrite(X-POS,HIGH);
+  digitalWrite(Y-POS,HIGH);
+  digitalWrite(X-NEG,LOW);
+  digitalWrite(Y-NEG,LOW);
 }
 
 void doSafety() {
