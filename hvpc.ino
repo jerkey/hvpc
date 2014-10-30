@@ -21,7 +21,9 @@ char versionStr[] = "High Voltage Pedal Charger v1.0";
 
 #define ACVOLTAGETARGET 120 // how many volts we want to generate
 #define ACFREQUENCY 60 // target frequency in Hertz (cycles per second)
-#define MINVOLTAGE 120 * 1.414 * 0.90 // minimum turn-on voltage
+#define ACMINOFFTIME 1000 // milliseconds minimum offTime before turn AC on
+#define ACSTARTVOLTAGE MINVOLTAGE + 30 // minimum turn-on voltage
+#define MINVOLTAGE 120 * 1.414 * 0.90 // minimum operation voltage
 #define MAXVOLTAGE 300 * 0.85 // based on capacitor maximum voltage?
 #define RELAYHYSTVOLTS 30 // how many volts below MAXVOLTAGE relay cancels
 #define RELAYMINTIME 2000 // how many milliseconds minimum relay on time
@@ -32,8 +34,9 @@ char versionStr[] = "High Voltage Pedal Charger v1.0";
 #define RELAYPIN 2 // a 3PDT relay which disconnects 3-winding generator
 
 float hvdc; // voltage of high-voltage DC rail
-unsigned long timeNow, lastRelayTime = 0;
+unsigned long timeNow, offTime, lastRelayTime = 0; // offTime is when AC last turned off
 boolean lastPolarity = true; // which polarity was AC last cycle
+boolean outputEnabled = false; // whether we are allowed to deliver AC output
 
 void setup() {
   Serial.begin(BAUDRATE);
@@ -51,7 +54,11 @@ void loop() {
   timeNow = millis();
   getVoltage();
   doSafety();
-  if hvdc > minVoltage
+  if ((hvdc > ACSTARTVOLTAGE) && (timeNow - offTime > ACMINOFFTIME)) outputEnabled = true;
+  if ((hvdc < MINVOLTAGE) && (!outputEnabled)) {
+    outputEnabled = false;
+    offTime = timeNow;
+  }
 }
 
 void setupInterruptHandler() { // configure interrupt-based FET control
@@ -65,14 +72,16 @@ void setupInterruptHandler() { // configure interrupt-based FET control
 }
 
 void polarityIntHandler() { // this is called 120 times per second for 60 Hertz
-  if (lastPolarity) {
-  digitalWrite(Y-POS,LOW);  // activate Y-positive
-  digitalWrite(X-NEG,HIGH); // activate X-negative
-  lastPolarity = false; // make it opposite what it was
-  } else { // lastPolarity was false
-  digitalWrite(X-POS,LOW);  // activate X-positive
-  digitalWrite(Y-NEG,HIGH); // activate Y-negative
-  lastPolarity = true; // make it opposite what it was
+  if (outputEnabled) {
+    if (lastPolarity) {
+      digitalWrite(Y-POS,LOW);  // activate Y-positive
+      digitalWrite(X-NEG,HIGH); // activate X-negative
+      lastPolarity = false; // make it opposite what it was
+    } else { // lastPolarity was false
+      digitalWrite(X-POS,LOW);  // activate X-positive
+      digitalWrite(Y-NEG,HIGH); // activate Y-negative
+      lastPolarity = true; // make it opposite what it was
+    }
   }
 
   now set the interrupt handler for offTimeIntHandlers()
