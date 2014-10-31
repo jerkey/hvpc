@@ -33,7 +33,7 @@ char versionStr[] = "High Voltage Pedal Charger v1.0";
 #define Y-POS 10 // these are capacitively coupled
 #define RELAYPIN 2 // a 3PDT relay which disconnects 3-winding generator
 
-float hvdc; // voltage of high-voltage DC rail
+float voltage; // voltage of high-voltage DC rail
 unsigned long timeNow, offTime, lastRelayTime = 0; // offTime is when AC last turned off
 boolean lastPolarity = true; // which polarity was AC last cycle
 boolean outputEnabled = false; // whether we are allowed to deliver AC output
@@ -54,8 +54,8 @@ void loop() {
   timeNow = millis();
   getVoltage();
   doSafety();
-  if ((hvdc > ACSTARTVOLTAGE) && (timeNow - offTime > ACMINOFFTIME)) outputEnabled = true;
-  if ((hvdc < MINVOLTAGE) && (!outputEnabled)) {
+  if ((voltage > ACSTARTVOLTAGE) && (timeNow - offTime > ACMINOFFTIME)) outputEnabled = true;
+  if ((voltage < MINVOLTAGE) && (outputEnabled)) {
     outputEnabled = false;
     offTime = timeNow;
   }
@@ -86,7 +86,7 @@ void polarityIntHandler() { // this is called 120 times per second for 60 Hertz
 
   now set the interrupt handler for offTimeIntHandlers()
     to happen the correct amount of time after now
-    based on the voltage of hvdc versus the target voltage
+    based on the voltage versus the target voltage
 }
 
 void offTimeIntHandlers() { // this is called by the settable timer interrupt
@@ -97,11 +97,11 @@ void offTimeIntHandlers() { // this is called by the settable timer interrupt
 }
 
 void doSafety() {
-  if (hvdc > MAXVOLTAGE) {
+  if (voltage > MAXVOLTAGE) {
     if (!digitalRead(RELAYPIN)) lastRelayTime = timeNow; // record when relay turned on
     digitalWrite(RELAYPIN,HIGH);
   }
-  if ((hvdc < (MAXVOLTAGE - RELAYHYSTVOLTS)) && (timeNow - lastRelayTime > RELAYMINTIME)) {
+  if ((voltage < (MAXVOLTAGE - RELAYHYSTVOLTS)) && (timeNow - lastRelayTime > RELAYMINTIME)) {
     digitalWrite(RELAYPIN,LOW);
   }
 }
