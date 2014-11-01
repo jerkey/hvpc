@@ -61,19 +61,32 @@ void loop() {
   }
 }
 
+
+ISR(TIMER1_COMPB_vect)
+
+ISR(TIMER1_COMPA_vect)
+
 void setupInterruptHandler() { // configure interrupt-based FET control
-  look at ACFREQUENCY and use it to setup frequency for first handler
-  setup one interrupt handler to trigger 120x per second
-    this handler turns on the FETs (opposite polarity each time)
-    and sets the timer for the other interrupt handler to be called
-    based on the correct amount of on-time for the present voltage
+  byte wgm_mode = 14; // PAGE 136
+  byte clock_select = 0b010; // CLKio/8 so CS12:10=010  PAGE 137
+  PRR &= 0b11110111;  // make sure timer1 is on PAGE 45
+  TCCR1A = 0b00000000 + (wgm_mode & 0b11); // OC1A/OC1B disconnected. TCCR1A PAGE 134
+  TCCR1B = ((wgm_mode & 0b1100) << 1) + clock_select; // TCCR1B PAGE 136
+  // note there is a master clock prescaler, usually off, see PAGE 38
+  ICR1 = 16000000 / 8 / (ACFREQUENCY * 2); // two interrupts per cycle
+  // 8MHz divided by 30000 = 135.5 Hz @ TIMER1_OVF_vect
+  // 8MHz divided by 128 = 31.8 KHz = total 18.6 KHz cycle
+  OCR1A = divisor / 2;  // higher value = lower duty cycle
+//  OCR1B = divisor / 2;  // put the same value into both registers
+  TIMSK1 = 0b00000001;  // bit 0 = OVF1   bit 1 = OCF1A   PAGE 139
+
   setup another interrupt handler to trigger when another timer expires
     this handler just turns all the FETs off when it's called.
 }
 
-void polarityIntHandler() { // this is called 120 times per second for 60 Hertz
+ISR(TIMER1_OVF_vect) // this is called 120 times per second for 60 Hertz
   if (outputEnabled) {
-    if (lastPolarity) {
+    if (lastPolarity) { // this handler turns on the FETs (opposite polarity each time)
       digitalWrite(Y-POS,LOW);  // activate Y-positive
       digitalWrite(X-NEG,HIGH); // activate X-negative
       lastPolarity = false; // make it opposite what it was
