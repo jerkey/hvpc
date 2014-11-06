@@ -19,6 +19,7 @@
 
 char versionStr[] = "High Voltage Pedal Charger v1.0";
 
+#define BAUDRATE 57600
 #define ACVOLTAGETARGET 120 // how many volts we want to generate
 #define ACFREQUENCY 60 // target frequency in Hertz (cycles per second)
 #define ACMINOFFTIME 1000 // milliseconds minimum offTime before turn AC on
@@ -27,11 +28,14 @@ char versionStr[] = "High Voltage Pedal Charger v1.0";
 #define MAXVOLTAGE 300 * 0.85 // based on capacitor maximum voltage?
 #define RELAYHYSTVOLTS 30 // how many volts below MAXVOLTAGE relay cancels
 #define RELAYMINTIME 2000 // how many milliseconds minimum relay on time
-#define X-NEG 7
-#define Y-NEG 8
-#define X-POS 9  // high = off, low = on
-#define Y-POS 10 // these are capacitively coupled
+#define X_NEG 7
+#define Y_NEG 8
+#define X_POS 9  // high = off, low = on
+#define Y_POS 10 // these are capacitively coupled
 #define RELAYPIN 2 // a 3PDT relay which disconnects 3-winding generator
+#define VOLTPIN A0 // voltage divider of high voltage DC
+#define VOLTCOEFF 13.179  // larger number interprets as lower voltage
+#define AVG_CYCLES 50 // average measured values over this many samples
 
 float voltage; // voltage of high-voltage DC rail
 unsigned long timeNow, offTime, lastRelayTime = 0; // offTime is when AC last turned off
@@ -41,12 +45,12 @@ boolean outputEnabled = false; // whether we are allowed to deliver AC output
 void setup() {
   Serial.begin(BAUDRATE);
   Serial.println(versionStr);
-  pinMode(X-NEG,OUTPUT);
-  pinMode(Y-NEG,OUTPUT);
-  digitalWrite(X-POS,HIGH); // high = off, low = on
-  digitalWrite(Y-POS,HIGH); // high = off, low = on
-  pinMode(X-POS,OUTPUT);
-  pinMode(Y-POS,OUTPUT);
+  pinMode(X_NEG,OUTPUT);
+  pinMode(Y_NEG,OUTPUT);
+  digitalWrite(X_POS,HIGH); // high = off, low = on
+  digitalWrite(Y_POS,HIGH); // high = off, low = on
+  pinMode(X_POS,OUTPUT);
+  pinMode(Y_POS,OUTPUT);
   setupInterruptHandler(); // configure interrupt-based FET control
 }
 
@@ -61,10 +65,8 @@ void loop() {
   }
 }
 
-
-ISR(TIMER1_COMPB_vect)
-
-ISR(TIMER1_COMPA_vect)
+// ISR(TIMER1_COMPB_vect)
+// ISR(TIMER1_COMPA_vect)
 
 void setupInterruptHandler() { // configure interrupt-based FET control
   byte wgm_mode = 14; // PAGE 136
@@ -76,37 +78,49 @@ void setupInterruptHandler() { // configure interrupt-based FET control
   ICR1 = 16000000 / 8 / (ACFREQUENCY * 2); // two interrupts per cycle
   // 8MHz divided by 30000 = 135.5 Hz @ TIMER1_OVF_vect
   // 8MHz divided by 128 = 31.8 KHz = total 18.6 KHz cycle
-  OCR1A = divisor / 2;  // higher value = lower duty cycle
+  OCR1A = 5000;  // higher value = lower duty cycle
 //  OCR1B = divisor / 2;  // put the same value into both registers
   TIMSK1 = 0b00000001;  // bit 0 = OVF1   bit 1 = OCF1A   PAGE 139
 
-  setup another interrupt handler to trigger when another timer expires
-    this handler just turns all the FETs off when it's called.
+  // setup another interrupt handler to trigger when another timer expires
+  //   this handler just turns all the FETs off when it's called.
 }
 
-ISR(TIMER1_OVF_vect) // this is called 120 times per second for 60 Hertz
+ISR(TIMER1_OVF_vect) { // this is called 120 times per second for 60 Hertz
   if (outputEnabled) {
     if (lastPolarity) { // this handler turns on the FETs (opposite polarity each time)
-      digitalWrite(Y-POS,LOW);  // activate Y-positive
-      digitalWrite(X-NEG,HIGH); // activate X-negative
+      digitalWrite(Y_POS,LOW);  // activate Y_positive
+      digitalWrite(X_NEG,HIGH); // activate X_negative
       lastPolarity = false; // make it opposite what it was
     } else { // lastPolarity was false
-      digitalWrite(X-POS,LOW);  // activate X-positive
-      digitalWrite(Y-NEG,HIGH); // activate Y-negative
+      digitalWrite(X_POS,LOW);  // activate X_positive
+      digitalWrite(Y_NEG,HIGH); // activate Y_negative
       lastPolarity = true; // make it opposite what it was
     }
   }
 
-  now set the interrupt handler for offTimeIntHandlers()
-    to happen the correct amount of time after now
-    based on the voltage versus the target voltage
+  // now set the interrupt handler for offTimeIntHandlers()
+  //   to happen the correct amount of time after now
+  //   based on the voltage versus the target voltage
 }
 
 void offTimeIntHandlers() { // this is called by the settable timer interrupt
-  digitalWrite(X-POS,HIGH);
-  digitalWrite(Y-POS,HIGH);
-  digitalWrite(X-NEG,LOW);
-  digitalWrite(Y-NEG,LOW);
+  digitalWrite(X_POS,HIGH);
+  digitalWrite(Y_POS,HIGH);
+  digitalWrite(X_NEG,LOW);
+  digitalWrite(Y_NEG,LOW);
+}
+
+void getVoltage() {
+  static float voltsAdc = analogRead(VOLTPIN);
+  static float voltsAdcAvg = average(voltsAdc, voltsAdcAvg);
+  voltage = voltsAdcAvg / VOLTCOEFF;
+}
+
+float average(float val, float avg) {
+  if(avg == 0)
+    avg = val;
+  return (val + (avg * (AVG_CYCLES - 1))) / AVG_CYCLES;
 }
 
 void doSafety() {
